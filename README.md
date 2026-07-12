@@ -1,55 +1,159 @@
-# WhatsApp IP Tracker
+# WhatsApp P2P Traceroute
 
-Network traffic analyzer for **WhatsApp / Meta** flows. Captures packets on an
-interface you control, filters Meta (AS32934) traffic, enriches each remote
-endpoint with geolocation + ASN + reverse-DNS, and flags **candidate
-peer-to-peer endpoints** — non-Meta public IPs seen during media traffic, the
-only realistic way passive capture reveals a real peer rather than a relay.
+A network traffic analyzer for **WhatsApp / Meta** flows. It captures packets on
+an interface you control, filters traffic belonging to Meta's network
+(AS32934), enriches every remote endpoint with **geolocation, ASN, and
+reverse-DNS**, and flags **candidate peer-to-peer endpoints** — the non-Meta
+public IPs seen during media traffic that are the only realistic way passive
+capture can surface a real peer instead of a relay server.
 
-> ⚠️ **Authorized / educational use only.** Capture only traffic on networks you
-> own or are explicitly permitted to monitor. Using this to locate or
-> deanonymize a person without consent may violate privacy and anti-stalking
-> laws. You are responsible for lawful use.
+> ⚠️ **Authorized / educational use only.**
+> Capture only traffic on networks you own or have explicit permission to
+> monitor. Using this to locate or deanonymize a person without consent may
+> violate privacy and anti-stalking laws. You are responsible for lawful use.
 
-## What it does
+---
 
-- Capture **TCP + UDP** (signaling *and* media), not UDP-only.
-- Meta prefix list **auto-refreshed** from RIPEstat (BGP, AS32934), cached, with
-  an offline seed fallback — no more stale hardcoded ranges.
-- Geo + **ASN** enrichment via MaxMind GeoLite2, readers opened once and cached.
-- **Heuristic scoring**: Meta relay vs remote vs candidate P2P peer.
-- Reports to **CSV + JSON**, ranked by "interesting" score.
-- Optional **live web dashboard** (FastAPI + WebSocket) with a geo map and feed.
+## Reality check (read this first)
 
-## Reality check
+Modern WhatsApp voice/video calls are usually **relayed through Meta's TURN
+servers**, so most IPs you capture are Meta's, not the other person's. A direct
+peer IP only leaks in narrow peer-to-peer situations. This tool surfaces those
+as `candidate_peer` records, but there is **no guarantee** any appear. Treat
+"get someone's IP from WhatsApp" as mostly a myth — this project is a
+traffic-analysis and learning tool, not a locator.
 
-Modern WhatsApp calls are usually **relayed through Meta TURN servers**, so most
-captured IPs are Meta's, not the other person's. A direct peer IP only leaks in
-narrow P2P cases — this tool surfaces those as `candidate_peer`, but there is no
-guarantee any appear. Treat "get someone's IP from WhatsApp" as mostly a myth.
+---
+
+## Features
+
+- **TCP + UDP capture** — signaling (443 / 5222) *and* media/STUN (UDP), not
+  UDP-only.
+- **Auto interface detection** — picks a working NIC automatically, or pass one
+  explicitly with `--iface`.
+- **Live Meta prefix refresh** — pulls the current AS32934 prefix list from
+  RIPEstat (public BGP data), caches it for 24h, and falls back to a bundled
+  seed list when offline. No more stale hardcoded ranges.
+- **Geo + ASN enrichment** — MaxMind GeoLite2 City + ASN; database readers are
+  opened once and results are LRU-cached. Degrades gracefully if the DBs are
+  absent (no crash, just blank location).
+- **Reverse-DNS labeling** — resolves hostnames and tags Meta-owned domains
+  (`whatsapp`, `fbcdn`, `facebook`, …).
+- **Peer heuristic scoring** — classifies each flow as **Meta relay**,
+  **Remote**, or **candidate P2P peer** and scores it 0–100.
+- **CSV + JSON reports** — per-IP aggregation (packets, bytes, ports, protocols,
+  first/last seen, geo, ASN), ranked by score.
+- **PCAP logging** — raw matched packets saved to `logs/packet_logs.pcap` for
+  offline analysis in Wireshark.
+- **Live web dashboard** — FastAPI + WebSocket, self-contained offline page with
+  a geo map, live packet feed, and a ranked-remotes table.
+- **Packaged & tested** — `pyproject.toml`, Docker support, and a `pytest` suite.
+
+---
+
+## Requirements
+
+- **Python 3.10+**
+- **Npcap** (Windows) or **libpcap** (Linux/macOS) — required for packet capture.
+  Windows: install from [npcap.com](https://npcap.com).
+- **Administrator / root** privileges to capture.
+- *(Optional)* MaxMind **GeoLite2-City** and **GeoLite2-ASN** databases for
+  location/ASN data — free account at
+  [maxmind.com](https://www.maxmind.com/en/geolite2/signup).
+
+---
 
 ## Install
 
 ```bash
+git clone https://github.com/arshadakl/Whatsapp-P2P-Traceroute.git
+cd Whatsapp-P2P-Traceroute
+
 pip install -r requirements.txt          # or: pip install -e ".[dev]"
 cp .env.example .env                      # optional tuning
-# Windows: install Npcap (https://npcap.com) for capture.
-# Download GeoLite2-City.mmdb + GeoLite2-ASN.mmdb into ./data (free MaxMind acct).
+
+# Optional: enable location/ASN data
+#   download GeoLite2-City.mmdb + GeoLite2-ASN.mmdb into ./data/
 ```
+
+---
 
 ## Usage
 
-```bash
-# CLI capture (needs Administrator / sudo)
-sudo python main.py --count 500
-python main.py --iface "Wi-Fi" --timeout 60
-python main.py --no-refresh              # skip online range refresh (offline)
+Run from an **elevated** terminal (Administrator on Windows, `sudo` on
+Linux/macOS).
 
-# Live dashboard
-python main.py --dashboard               # http://127.0.0.1:8000
+### CLI capture
+
+```bash
+# Capture 500 packets then write reports
+python main.py --count 500
+
+# Capture on a specific interface for 60 seconds
+python main.py --iface "Wi-Fi" --timeout 60
+
+# Run until Ctrl+C (count 0 = infinite)
+python main.py
+
+# Skip the online Meta-range refresh (fully offline)
+python main.py --no-refresh
 ```
 
-Outputs: `output/ip_report.csv`, `output/ip_report.json`, `logs/packet_logs.pcap`.
+### Live dashboard
+
+```bash
+python main.py --dashboard
+# open http://127.0.0.1:8000
+```
+
+Then place a **WhatsApp voice/video call** on a device on the same network and
+watch flows appear live.
+
+### All options
+
+| Flag           | Default    | Description                              |
+|----------------|------------|------------------------------------------|
+| `--iface`      | auto       | Interface to sniff (blank = auto-detect) |
+| `--count`      | `0`        | Packet count (`0` = until Ctrl+C)        |
+| `--timeout`    | none       | Stop capture after N seconds             |
+| `--no-refresh` | off        | Skip online Meta-prefix refresh          |
+| `--dashboard`  | off        | Launch web dashboard instead of CLI      |
+
+Environment overrides (in `.env`): `WIT_IFACE`, `WIT_COUNT`, `WIT_BPF`,
+`WIT_HOST`, `WIT_PORT`, `WIT_RANGE_MAX_AGE`, `GEO_CITY_DB`, `GEO_ASN_DB`.
+
+---
+
+## Output
+
+| File                       | Contents                                             |
+|----------------------------|------------------------------------------------------|
+| `output/ip_report.csv`     | Per-remote summary, ranked by score                  |
+| `output/ip_report.json`    | Same data as JSON                                    |
+| `logs/packet_logs.pcap`    | Raw matched packets (open in Wireshark)              |
+| `data/meta_ranges.json`    | Cached AS32934 prefix list                           |
+
+**Report columns:** `remote`, `packets`, `bytes`, `protocols`, `ports`,
+`is_meta`, `candidate_peer`, `max_score`, `host`, `asn`, `org`, `country`,
+`city`, `latitude`, `longitude`, `first_seen`, `last_seen`.
+
+**Flow types:**
+- 🟢 **Meta** — endpoint in Meta's network (relay/server). Expected majority.
+- 🟡 **Remote** — public non-Meta endpoint, non-media.
+- 🔴 **PEER?** (`candidate_peer`) — public non-Meta IP during media traffic;
+  possible direct peer. The interesting signal.
+
+---
+
+## Docker
+
+```bash
+docker build -t wit .
+docker run --rm --net=host --cap-add=NET_RAW --cap-add=NET_ADMIN \
+  -p 8000:8000 wit --dashboard
+```
+
+---
 
 ## Tests
 
@@ -57,14 +161,9 @@ Outputs: `output/ip_report.csv`, `output/ip_report.json`, `logs/packet_logs.pcap
 pytest
 ```
 
-## Docker
+---
 
-```bash
-docker build -t wit .
-docker run --rm --net=host --cap-add=NET_RAW --cap-add=NET_ADMIN -p 8000:8000 wit --dashboard
-```
-
-## Architecture
+## Project structure
 
 ```
 main.py              CLI entrypoint (capture | --dashboard)
@@ -79,6 +178,26 @@ core/
 utils/
   geo_ip.py          GeoLite2 city+ASN, open-once, LRU cache
   helpers.py         logging, admin check, dir setup
-dashboard/           FastAPI + WebSocket + offline canvas map
+dashboard/
+  server.py          FastAPI + WebSocket server
+  static/index.html  offline dashboard (canvas map + live feed)
 tests/               pytest suite (ip_filter, classifier, reporting)
 ```
+
+---
+
+## Troubleshooting
+
+| Symptom                                  | Fix                                                        |
+|------------------------------------------|-----------------------------------------------------------|
+| `No libpcap provider available`          | Install Npcap (Windows) / libpcap (Linux).                |
+| `requires elevated privileges` / exits   | Run terminal as Administrator / use `sudo`.               |
+| No packets captured                      | Wrong interface — pass `--iface "Wi-Fi"` explicitly.      |
+| Blank city/country/ASN                   | Add GeoLite2 `.mmdb` files to `./data/`.                  |
+| Only Meta IPs, no `PEER?`                | Expected — calls are relayed. P2P leak is rare.           |
+
+---
+
+## License
+
+For authorized security research and education. Use responsibly and lawfully.
