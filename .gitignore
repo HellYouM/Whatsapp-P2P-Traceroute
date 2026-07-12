@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.env
+data/*.mmdb
+data/meta_ranges.json
+logs/*.pcap
+output/*.csv
+output/*.json
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/

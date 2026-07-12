@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whatsapp-ip-tracker"
+version = "1.0.0"
+description = "Authorized/educational WhatsApp (Meta) network traffic analyzer with geo/ASN enrichment and a live dashboard."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "scapy>=2.5",
+    "geoip2>=4.8",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+wit = "main:main"
+
+[tool.setuptools]
+py-modules = ["main", "config"]
+packages = ["core", "utils", "dashboard"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
